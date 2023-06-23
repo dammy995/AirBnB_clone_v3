@@ -1,105 +1,86 @@
 #!/usr/bin/python3
+""" Flask routes for handling URI subpaths concerning `Place` - `Amenity`
+object relationships in storage, using `app_views` Blueprint.
 """
-route for handling place and amenities linking
-"""
-from flask import jsonify, abort
-from os import getenv
+from api.v1.views import app_views
+from flask import Flask, jsonify, abort, request
+from models import storage
+from models.place import Place
+from models.amenity import Amenity
+import os
 
-from api.v1.views import app_views, storage
 
-
-@app_views.route("/places/<place_id>/amenities",
-                 methods=["GET"],
+@app_views.route("/places/<place_id>/amenities", methods=['GET'],
                  strict_slashes=False)
-def amenity_by_place(place_id):
-    """
-    get all amenities of a place
-    :param place_id: amenity id
-    :return: all amenities
-    """
-    fetched_obj = storage.get("Place", str(place_id))
+def GET_Place_amenities(place_id):
+    """ Returns JSON list of all `Amenity` instances associated
+    with a given `Place` instance in storage
 
-    all_amenities = []
+    Args:
+        place_id: uuid of `Place` instance in storage
 
-    if fetched_obj is None:
+    Return:
+        JSON list of all `Amenity` instances for a given `Place` instance
+    """
+    place = storage.get(Place, place_id)
+
+    if place:
+        amenity_list = []
+        for amenity in place.amenities:
+            amenity_list.append(amenity.to_dict())
+        return (jsonify(amenity_list))
+    else:
         abort(404)
-
-    for obj in fetched_obj.amenities:
-        all_amenities.append(obj.to_json())
-
-    return jsonify(all_amenities)
 
 
 @app_views.route("/places/<place_id>/amenities/<amenity_id>",
-                 methods=["DELETE"],
-                 strict_slashes=False)
-def unlink_amenity_from_place(place_id, amenity_id):
+                 methods=['DELETE'], strict_slashes=False)
+def DELETE_Place_amenities(place_id, amenity_id):
+    """ Deletes relationship between a `Place` and an `Amenity` instance in
+    storage by ids in URI subpath
+
+    Args:
+        place_id: uuid of `Place` instance in storage
+        amenity_id: uuid of `Amenity` instance in storage
+
+    Return:
+        Empty dictionary and response status 200, or 404 response
+    on error
     """
-    unlinks an amenity in a place
-    :param place_id: place id
-    :param amenity_id: amenity id
-    :return: empty dict or error
-    """
-    if not storage.get("Place", str(place_id)):
-        abort(404)
-    if not storage.get("Amenity", str(amenity_id)):
-        abort(404)
+    place = storage.get(Place, place_id)
+    amenity = storage.get(Amenity, amenity_id)
 
-    fetched_obj = storage.get("Place", place_id)
-    found = 0
-
-    for obj in fetched_obj.amenities:
-        if str(obj.id) == amenity_id:
-            if getenv("HBNB_TYPE_STORAGE") == "db":
-                fetched_obj.amenities.remove(obj)
-            else:
-                fetched_obj.amenity_ids.remove(obj.id)
-            fetched_obj.save()
-            found = 1
-            break
-
-    if found == 0:
-        abort(404)
+    if place and amenity and amenity in place.amenities:
+        place.amenities.remove(amenity)
+        storage.save()
+        return ({})
     else:
-        resp = jsonify({})
-        resp.status_code = 201
-        return resp
-
-
-@app_views.route("/places/<place_id>/amenities/<amenity_id>",
-                 methods=["POST"],
-                 strict_slashes=False)
-def link_amenity_to_place(place_id, amenity_id):
-    """
-    links a amenity with a place
-    :param place_id: place id
-    :param amenity_id: amenity id
-    :return: return Amenity obj added or error
-    """
-
-    fetched_obj = storage.get("Place", str(place_id))
-    amenity_obj = storage.get("Amenity", str(amenity_id))
-    found_amenity = None
-
-    if not fetched_obj or not amenity_obj:
         abort(404)
 
-    for obj in fetched_obj.amenities:
-        if str(obj.id) == amenity_id:
-            found_amenity = obj
-            break
 
-    if found_amenity is not None:
-        return jsonify(found_amenity.to_json())
+@app_views.route('/places/<place_id>/amenities/<amenity_id>', methods=['POST'],
+                 strict_slashes=False)
+def POST_Place_amenities(place_id, amenity_id):
+    """ Links a new `Amenity` instance to a `Place` instance in storage,
+    by ids in URI subpath
 
-    if getenv("HBNB_TYPE_STORAGE") == "db":
-        fetched_obj.amenities.append(amenity_obj)
+    Args:
+        place_id: uuid of `Place` instance in storage
+        amenity_id: uuid of `Amenity` instance in storage
+
+    Return:
+        Linked `Amenity` instance and response status 201, or 404 response
+    on error
+    """
+    place = storage.get(Place, place_id)
+    amenity = storage.get(Amenity, amenity_id)
+
+    if place and amenity:
+        if amenity in place.amenities:
+            return (jsonify(amenity.to_dict()))
+        else:
+            place.amenities.append(amenity)
+        storage.save()
+        return (jsonify(amenity.to_dict()), 201)
     else:
-        fetched_obj.amenities = amenity_obj
-
-    fetched_obj.save()
-
-    resp = jsonify(amenity_obj.to_json())
-    resp.status_code = 201
-
-    return resp
+        abort(404)
